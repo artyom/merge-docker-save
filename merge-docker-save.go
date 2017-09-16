@@ -46,28 +46,42 @@ func do(name string, input io.Reader) error {
 func repack(out io.Writer, input io.Reader) error {
 	tr := tar.NewReader(input)
 	tw := tar.NewWriter(out)
-	var layers []string
+	layers := make(map[string]io.ReadCloser)
+	var mlayers []string
+	defer func() {
+		for _, f := range layers {
+			f.Close()
+		}
+	}()
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
+			for _, name := range mlayers {
+				f, ok := layers[name]
+				if !ok {
+					return fmt.Errorf("manifest references unknown layer %q", name)
+				}
+				if err := copyStream(tw, tar.NewReader(f)); err != nil {
+					return err
+				}
+			}
 			return tw.Close()
 		}
 		if err != nil {
 			return err
 		}
 		if strings.HasSuffix(hdr.Name, "/layer.tar") {
-			layers = append(layers, hdr.Name)
-			if err := copyStream(tw, tar.NewReader(tr)); err != nil {
-				return err
-			}
-			continue
-		}
-		if hdr.Name == "manifest.json" {
-			mlayers, err := decodeLayerList(tr)
+			f, err := dumpStream(tr)
 			if err != nil {
 				return err
 			}
-			if err := compareLayers(layers, mlayers); err != nil {
+			layers[hdr.Name] = f
+			continue
+		}
+		if hdr.Name == "manifest.json" {
+			var err error
+			mlayers, err = decodeLayerList(tr)
+			if err != nil {
 				return err
 			}
 		}
@@ -108,17 +122,21 @@ func decodeLayerList(r io.Reader) ([]string, error) {
 	return data[0].Layers, nil
 }
 
-func compareLayers(layers, mlayers []string) error {
-	err := fmt.Errorf("layers unpacked and listed in manifest.json differ")
-	if len(layers) != len(mlayers) {
-		return err
+func dumpStream(r io.Reader) (io.ReadCloser, error) {
+	f, err := ioutil.TempFile("", "merge-docker-save-")
+	if err != nil {
+		return nil, err
 	}
-	for i := range layers {
-		if layers[i] != mlayers[i] {
-			return err
-		}
+	os.Remove(f.Name())
+	if _, err := io.Copy(f, r); err != nil {
+		f.Close()
+		return nil, err
 	}
-	return nil
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 func openOutput(name string) (io.WriteCloser, error) {
