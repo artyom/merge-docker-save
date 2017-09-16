@@ -49,8 +49,8 @@ func repack(out io.Writer, input io.Reader) error {
 		if err != nil {
 			return err
 		}
-		if strings.HasSuffix(hdr.Name, layerSuffix) {
-			layers = append(layers, strings.TrimSuffix(hdr.Name, layerSuffix))
+		if strings.HasSuffix(hdr.Name, "/layer.tar") {
+			layers = append(layers, hdr.Name)
 			if err := copyStream(tw, tar.NewReader(tr)); err != nil {
 				return err
 			}
@@ -99,11 +99,7 @@ func decodeLayerList(r io.Reader) ([]string, error) {
 	if l := len(data); l != 1 {
 		return nil, fmt.Errorf("manifest has %d objects, want 1", l)
 	}
-	out := make([]string, len(data[0].Layers))
-	for i, s := range data[0].Layers {
-		out[i] = strings.TrimSuffix(s, layerSuffix)
-	}
-	return out, nil
+	return data[0].Layers, nil
 }
 
 func compareLayers(layers, mlayers []string) error {
@@ -125,5 +121,3 @@ func openOutput(name string) (io.WriteCloser, error) {
 	}
 	return os.Create(name)
 }
-
-const layerSuffix = "/layer.tar"
