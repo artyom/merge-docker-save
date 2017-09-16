@@ -1,5 +1,4 @@
-Command merge-docker-save repacks output of docker save command called for
-single image to a tar stream with merged content of all image layers
+Command `merge-docker-save` repacks output of the docker save command called for a single image to a tar stream with merged content of all image layers.
 
 Command `docker save` outputs docker-specific tar stream:
 
@@ -28,4 +27,4 @@ Command `merge-docker-save` transforms this output to produce tar stream with co
 
 ## Known limits
 
-Only supports `docker save` output for single image, i.e. `docker save alpine:latest` works, but `docker save alpine` doesn't, since it contains output for multiple images.
+Command only supports `docker save` output for a single image, i.e. piping `docker save alpine:latest` works, but `docker save alpine` may not if it outputs multiple images.
