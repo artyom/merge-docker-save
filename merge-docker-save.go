@@ -79,9 +79,7 @@ func repack(out io.Writer, input io.Reader) error {
 			continue
 		}
 		if hdr.Name == "manifest.json" {
-			var err error
-			mlayers, err = decodeLayerList(tr)
-			if err != nil {
+			if mlayers, err = decodeLayerList(tr); err != nil {
 				return err
 			}
 		}
