@@ -103,13 +103,13 @@ func decodeLayerList(r io.Reader) ([]string, error) {
 		return nil, err
 	}
 	if l := len(data); l != 1 {
-		return nil, fmt.Errorf("manifest has %d objects, want 1", l)
+		return nil, fmt.Errorf("manifest.json describes %d objects, call docker save for a single image", l)
 	}
 	return data[0].Layers, nil
 }
 
 func compareLayers(layers, mlayers []string) error {
-	err := fmt.Errorf("unpacked layers and listed in manifest.json differ")
+	err := fmt.Errorf("layers unpacked and listed in manifest.json differ")
 	if len(layers) != len(mlayers) {
 		return err
 	}
