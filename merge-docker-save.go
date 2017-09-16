@@ -1,14 +1,20 @@
 // Command merge-docker-save repacks output of docker save command called for
 // single image to a tar stream with merged content of all image layers
+//
+// Usage:
+//
+// 	docker save image:tag | merge-docker-save > image-fs.tar
 package main
 
 import (
 	"archive/tar"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/artyom/autoflags"
@@ -120,4 +126,11 @@ func openOutput(name string) (io.WriteCloser, error) {
 		return os.Stdout, nil
 	}
 	return os.Create(name)
+}
+
+func init() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: docker save image:tag | %s > image-fs.tar\n", filepath.Base(os.Args[0]))
+		flag.PrintDefaults()
+	}
 }
