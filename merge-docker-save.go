@@ -8,6 +8,7 @@ package main
 
 import (
 	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -23,16 +24,17 @@ import (
 func main() {
 	args := struct {
 		File string `flag:"o,file to write output to instead of stdout"`
+		Gzip bool   `flag:"gzip,compress output with gzip"`
 	}{}
 	autoflags.Parse(&args)
-	if err := do(args.File, os.Stdin); err != nil {
+	if err := do(args.File, args.Gzip, os.Stdin); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func do(name string, input io.Reader) error {
-	output, err := openOutput(name)
+func do(name string, gzip bool, input io.Reader) error {
+	output, err := openOutput(name, gzip)
 	if err != nil {
 		return err
 	}
@@ -137,11 +139,36 @@ func dumpStream(r io.Reader) (io.ReadCloser, error) {
 	return f, nil
 }
 
-func openOutput(name string) (io.WriteCloser, error) {
-	if name == "" {
-		return os.Stdout, nil
+func openOutput(name string, compress bool) (io.WriteCloser, error) {
+	var wc io.WriteCloser = os.Stdout
+	if name != "" {
+		f, err := os.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		wc = f
 	}
-	return os.Create(name)
+	if !compress {
+		return wc, nil
+	}
+	return &writerChain{gzip.NewWriter(wc), wc}, nil
+}
+
+type writerChain []io.WriteCloser
+
+// Write implements io.Writer by writing to the first Writer in writerChain
+func (w writerChain) Write(b []byte) (int, error) { return w[0].Write(b) }
+
+// Close implements io.Closer by closing every Closer in a writerChain and
+// returning the first captured non-nil error it encountered.
+func (w writerChain) Close() error {
+	var err error
+	for _, c := range w {
+		if err2 := c.Close(); err2 != nil && err == nil {
+			err = err2
+		}
+	}
+	return err
 }
 
 func init() {
