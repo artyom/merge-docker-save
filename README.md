@@ -28,3 +28,5 @@ Command `merge-docker-save` transforms this output to produce tar stream with co
 ## Known limits
 
 Command only supports `docker save` output for a single image, i.e. piping `docker save alpine:latest` works, but `docker save alpine` may not if it outputs multiple images.
+
+This tool uses system default directory to store temporary files, which can be overridden by setting `$TMPDIR` environment.
