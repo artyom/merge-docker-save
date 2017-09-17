@@ -29,4 +29,11 @@ Command `merge-docker-save` transforms this output to produce tar stream with co
 
 Command only supports `docker save` output for a single image, i.e. piping `docker save alpine:latest` works, but `docker save alpine` may not if it outputs multiple images.
 
+Because this command essentially concatenates multiple tar archives one after another, some features are not supported, i.e. removal of the file from the previous layer by the next one. If you have the following Dockerfile:
+
+	COPY requirements.pip .
+	RUN pip install -r requirements.pip && rm requirements.pip
+
+Resulting archive would still have both `requirements.pip` file and empty unreadable `.wh.requirements.pip` alongside it.
+
 This tool uses system default directory to store temporary files, which can be overridden by setting `$TMPDIR` environment.
