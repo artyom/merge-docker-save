@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -48,8 +49,8 @@ func do(name string, gzip bool, input io.Reader) error {
 func repack(out io.Writer, input io.Reader) error {
 	tr := tar.NewReader(input)
 	tw := tar.NewWriter(out)
-	layers := make(map[string]io.ReadCloser)
-	var mlayers []string
+	layers := make(map[string]*os.File)
+	var mlayers []*layerMeta
 	defer func() {
 		for _, f := range layers {
 			f.Close()
@@ -58,12 +59,18 @@ func repack(out io.Writer, input io.Reader) error {
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			for _, name := range mlayers {
-				f, ok := layers[name]
+			if err := fillSkips(layers, mlayers); err != nil {
+				return err
+			}
+			for _, meta := range mlayers {
+				f, ok := layers[meta.name]
 				if !ok {
-					return fmt.Errorf("manifest references unknown layer %q", name)
+					return fmt.Errorf("manifest references unknown layer %q", meta.name)
 				}
-				if err := copyStream(tw, tar.NewReader(f)); err != nil {
+				if _, err := f.Seek(0, io.SeekStart); err != nil {
+					return err
+				}
+				if err := copyStream(tw, tar.NewReader(f), meta.skip); err != nil {
 					return err
 				}
 			}
@@ -85,13 +92,11 @@ func repack(out io.Writer, input io.Reader) error {
 				return err
 			}
 		}
-		if _, err := io.Copy(ioutil.Discard, tr); err != nil {
-			return err
-		}
 	}
 }
 
-func copyStream(tw *tar.Writer, tr *tar.Reader) error {
+func copyStream(tw *tar.Writer, tr *tar.Reader, skip map[string]struct{}) error {
+tarLoop:
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -99,6 +104,17 @@ func copyStream(tw *tar.Writer, tr *tar.Reader) error {
 		}
 		if err != nil {
 			return err
+		}
+		if _, ok := skip[hdr.Name]; ok {
+			continue
+		}
+		if hdr.Mode == 0 && strings.HasPrefix(path.Base(hdr.Name), tombstone) {
+			continue
+		}
+		for prefix := range skip {
+			if strings.HasPrefix(hdr.Name, prefix+"/") {
+				continue tarLoop
+			}
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
@@ -109,7 +125,7 @@ func copyStream(tw *tar.Writer, tr *tar.Reader) error {
 	}
 }
 
-func decodeLayerList(r io.Reader) ([]string, error) {
+func decodeLayerList(r io.Reader) ([]*layerMeta, error) {
 	data := []struct {
 		Layers []string
 	}{}
@@ -119,20 +135,20 @@ func decodeLayerList(r io.Reader) ([]string, error) {
 	if l := len(data); l != 1 {
 		return nil, fmt.Errorf("manifest.json describes %d objects, call docker save for a single image", l)
 	}
-	return data[0].Layers, nil
+	out := make([]*layerMeta, len(data[0].Layers))
+	for i, name := range data[0].Layers {
+		out[i] = &layerMeta{name: name}
+	}
+	return out, nil
 }
 
-func dumpStream(r io.Reader) (io.ReadCloser, error) {
+func dumpStream(r io.Reader) (*os.File, error) {
 	f, err := ioutil.TempFile("", "merge-docker-save-")
 	if err != nil {
 		return nil, err
 	}
 	os.Remove(f.Name())
 	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
-		return nil, err
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -171,9 +187,72 @@ func (w writerChain) Close() error {
 	return err
 }
 
+type layerMeta struct {
+	name string
+	skip map[string]struct{}
+}
+
+// fillSkips fills skip fields of mlayers elements from the tombstone items
+// discovered in files referenced in layers map. skip fields filled in such
+// a way that for each layer it holds a set of names that should be skipped when
+// repacking tar stream since these items would be removed by the following
+// layers.
+func fillSkips(layers map[string]*os.File, mlayers []*layerMeta) error {
+	for i := len(mlayers) - 1; i > 0; i-- {
+		meta := mlayers[i]
+		f, ok := layers[meta.name]
+		if !ok {
+			return fmt.Errorf("manifest references unknown layer %q", meta.name)
+		}
+		skips, err := findSkips(f)
+		if err != nil {
+			return err
+		}
+		if skips == nil {
+			continue
+		}
+		for _, meta := range mlayers[:i] {
+			if meta.skip == nil {
+				meta.skip = make(map[string]struct{})
+			}
+			for _, s := range skips {
+				meta.skip[s] = struct{}{}
+			}
+		}
+	}
+	return nil
+}
+
+// findSkips scans tar archive for tombstone items and returns list of
+// corresponding file names.
+func findSkips(f io.ReadSeeker) ([]string, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	var skips []string
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return skips, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Mode != 0 {
+			continue
+		}
+		if base := path.Base(hdr.Name); strings.HasPrefix(base, tombstone) && base != tombstone {
+			skips = append(skips, path.Join(path.Dir(hdr.Name), strings.TrimPrefix(base, tombstone)))
+		}
+	}
+}
+
 func init() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: docker save image:tag | %s > image-fs.tar\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
 	}
 }
+
+const tombstone = ".wh." // prefix docker uses to mark deleted files
