@@ -1,6 +1,6 @@
 Command `merge-docker-save` repacks output of the docker save command called for a single image to a tar stream with merged content of all image layers.
 
-Command `docker save` outputs docker-specific tar stream:
+Command `docker save` outputs [docker-specific tar stream](https://github.com/moby/moby/blob/master/image/spec/v1.2.md):
 
 	$ docker save alpine:latest | tar tv |head
 	drwxr-xr-x 0/0               0 2017-09-13 14:32 030cf30aac0be224d6b7e02ca2b7cadf1d078bf90ef1e9656ff54a924a5f163a/
