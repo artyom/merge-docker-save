@@ -108,7 +108,7 @@ tarLoop:
 		if _, ok := skip[hdr.Name]; ok {
 			continue
 		}
-		if hdr.Mode == 0 && strings.HasPrefix(path.Base(hdr.Name), tombstone) {
+		if strings.HasPrefix(path.Base(hdr.Name), tombstone) {
 			continue
 		}
 		for prefix := range skip {
@@ -238,9 +238,6 @@ func findSkips(f io.ReadSeeker) ([]string, error) {
 		}
 		if err != nil {
 			return nil, err
-		}
-		if hdr.Mode != 0 {
-			continue
 		}
 		if base := path.Base(hdr.Name); strings.HasPrefix(base, tombstone) && base != tombstone {
 			skips = append(skips, path.Join(path.Dir(hdr.Name), strings.TrimPrefix(base, tombstone)))
