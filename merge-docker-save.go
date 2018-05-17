@@ -241,6 +241,9 @@ func findSkips(f io.ReadSeeker) ([]string, error) {
 		}
 		if base := path.Base(hdr.Name); strings.HasPrefix(base, tombstone) && base != tombstone {
 			skips = append(skips, path.Join(path.Dir(hdr.Name), strings.TrimPrefix(base, tombstone)))
+		} else {
+			// workaround for GNU tar bug: https://gist.github.com/artyom/926ec9c49a2077f2820053274f0b1b16
+			skips = append(skips, hdr.Name)
 		}
 	}
 }
